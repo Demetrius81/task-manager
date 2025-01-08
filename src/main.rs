@@ -1,6 +1,10 @@
 use chrono::{DateTime, Local};
-use std::io::Write;
+use serde::{Deserialize, Serialize};
+use std::fs::File;
+use std::io::{BufReader, Write};
+use std::path::Path;
 
+#[derive(Serialize, Deserialize)]
 enum Priority {
     Low,
     Medium,
@@ -17,6 +21,7 @@ impl Priority {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 struct Task {
     name: String,
     description: String,
@@ -101,9 +106,11 @@ impl TasksManager {
         self.tasks.iter().position(|t| t.name == name)
     }
 
-    // fn find_task(&self, name: &str) -> Option<&Task> {
-    //     self.tasks.iter().find(|t| t.name.to_string() == name.to_string())
-    // }
+    fn find_task(&self, name: &str) -> Option<&Task> {
+        self.tasks
+            .iter()
+            .find(|t| t.name.to_string() == name.to_string())
+    }
 
     fn edit_task(&mut self, name: &str, new_task: Task) -> Result<String, String> {
         if let Some(index) = self.find_task_index(name) {
@@ -119,6 +126,41 @@ impl TasksManager {
             }
         } else {
             Err(format!("Task {} not found", name))
+        }
+    }
+
+    fn store_to_file(&self, file_name: &str) -> Result<String, String> {
+        if !Path::new(file_name).exists() {
+            let file = match File::create(file_name) {
+                Ok(file) => file,
+                Err(err) => return Err(format!("Error creating file: {}", err)),
+            };
+
+            match serde_json::to_writer(&file, &self.tasks) {
+                Ok(_) => Ok("Success".to_owned()),
+                Err(err) => Err(format!("Error saving data: {}", err)),
+            }
+        } else {
+            Err(format!("File {} already exists", file_name).to_owned())
+        }
+    }
+
+    fn read_from_file(&mut self, file_name: &str) -> Result<String, String> {
+        if Path::new(file_name).exists() {
+            let file = match File::create(file_name) {
+                Ok(file) => file,
+                Err(err) => return Err(format!("Error creating file: {}", err)),
+            };
+            let reader = BufReader::new(file);
+
+            self.tasks = match serde_json::from_reader(reader) {
+                Ok(data) => data,
+                Err(err) => return Err(format!("Error reading data: {}", err)),
+            };
+
+            Ok("Data read successfully".to_owned())
+        } else {
+            Err(format!("File {} does not exists", file_name).to_owned())
         }
     }
 }
@@ -172,7 +214,13 @@ impl ConsoleManager {
                             return;
                         }
                     };
-                    self.tasks_manager.find_task_index(&name);
+                    match self.tasks_manager.find_task(&name) {
+                        None => println!("Task {} not found", name),
+                        Some(task) => {
+                            println!("Task found.");
+                            task.print_task();
+                        }
+                    };
                 }
                 "3" => {
                     let name = match Self::input("Enter new task name: ") {
@@ -182,7 +230,10 @@ impl ConsoleManager {
                             return;
                         }
                     };
-                    match self.tasks_manager.edit_task(&name, Task::new_from_console()) {
+                    match self
+                        .tasks_manager
+                        .edit_task(&name, Task::new_from_console())
+                    {
                         Ok(msg) => {
                             println!("{}", msg)
                         }
@@ -211,8 +262,42 @@ impl ConsoleManager {
                 "5" => {
                     self.tasks_manager.print_tasks();
                 }
-                "6" => {}
-                "7" => {}
+                "6" => {
+                    let file_name = match Self::input("Enter file name to store data in: ") {
+                        Ok(name) => name,
+                        Err(e) => {
+                            println!("Error getting user input: {}", e);
+                            return;
+                        }
+                    };
+                    match self.tasks_manager.store_to_file(&file_name) {
+                        Ok(msg) => {
+                            println!("{}", msg);
+                        }
+                        Err(msg) => {
+                            println!("{}", msg);
+                            return;
+                        }
+                    }
+                }
+                "7" => {
+                    let file_name = match Self::input("Enter file name to read data from: ") {
+                        Ok(name) => name,
+                        Err(e) => {
+                            println!("Error getting user input: {}", e);
+                            return;
+                        }
+                    };
+                    match self.tasks_manager.read_from_file(&file_name) {
+                        Ok(msg) => {
+                            println!("{}", msg);
+                        }
+                        Err(msg) => {
+                            println!("{}", msg);
+                            return;
+                        }
+                    }
+                }
                 _ => println!("Invalid command"),
             },
             Err(e) => println!("Error getting user input: {}", e),
